@@ -1,6 +1,6 @@
 {
   "name": "casa-dev-overlay",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A local-dev overlay for GOV.UK CASA apps. Visualises the journey graph, inspects the JourneyContext, jumps to any waypoint, and auto-fills with reusable presets (compatible with spiderplan personas).",
   "type": "module",
   "main": "./dist/index.cjs",
