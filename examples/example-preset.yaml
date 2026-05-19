@@ -1,0 +1,27 @@
+# Drop this file into your CASA app's ./.casa-presets/ directory (or whatever
+# you set `presetsDir` to). It's the same format as a spiderplan persona, so
+# you can point `presetsDir` at your existing tests/e2e/personas/ instead.
+
+# Optional: where to land after applying. If omitted, the overlay stays put.
+target: check-your-answers
+
+# Per-waypoint field data. Same shape as JourneyContext.data.
+data:
+  personal-details:
+    title: MR
+    firstName: Alice
+    lastName: Example
+    dob:
+      dd: "01"
+      mm: "01"
+      yyyy: "1990"
+
+  contact-details:
+    tel: "01234 567890"
+    email: alice@example.com
+
+  live-with-partner:
+    havePartner: "yes"
+
+  your-partners-name:
+    fullName: Bob Example
