@@ -11,7 +11,7 @@
   position: fixed;
   top: 8px;
   right: 8px;
-  background: #1d70b8;
+  background: #4c2c92;
   color: white;
   border: 0;
   border-radius: 999px;
@@ -27,7 +27,7 @@
   width: 8px; height: 8px; border-radius: 50%;
   background: #00d39c; display: inline-block;
 }
-.casa-dt-toggle:hover { background: #003078; }
+.casa-dt-toggle:hover { background: #3d2273; }
 
 .casa-dt-panel {
   position: fixed;

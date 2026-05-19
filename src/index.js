@@ -134,8 +134,27 @@ export default function casaDevOverlay(opts = {}) {
       // Inject the overlay <script> into HTML responses served from the
       // ancillaryRouter and journeyRouter. Static and API responses are
       // skipped automatically because they don't return HTML.
-      out.ancillaryRouter.use(injectOverlay({ mountPath: MOUNT_PATH }));
-      out.journeyRouter.use(injectOverlay({ mountPath: MOUNT_PATH }));
+      //
+      // IMPORTANT: CASA's routers are MutableRouters whose stack is replayed
+      // onto a real Express Router at seal time. By the time `bootstrap()`
+      // runs, CASA has already pushed every per-waypoint `GET /<waypoint>`
+      // handler (which calls `res.send` to terminate the response) onto the
+      // journeyRouter stack, and the `/session-timeout` handler onto the
+      // ancillaryRouter stack. A plain `.use()` would append our `res.send`
+      // wrapper *after* those handlers, so it would never run. `prependUse()`
+      // inserts at index 0 of the stack, so our wrapper is in place before
+      // the page handler calls `res.send`.
+      const inject = injectOverlay({ mountPath: MOUNT_PATH });
+      if (typeof out.ancillaryRouter.prependUse === "function") {
+        out.ancillaryRouter.prependUse(inject);
+      } else {
+        out.ancillaryRouter.use(inject);
+      }
+      if (typeof out.journeyRouter.prependUse === "function") {
+        out.journeyRouter.prependUse(inject);
+      } else {
+        out.journeyRouter.use(inject);
+      }
 
       // Friendly start-up banner
       // eslint-disable-next-line no-console
