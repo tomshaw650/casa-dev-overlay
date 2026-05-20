@@ -21,8 +21,13 @@ export function injectOverlay({ mountPath = MOUNT_PATH } = {}) {
     res.send = function (body) {
       try {
         const ct = String(res.getHeader("content-type") || "");
+        // Express sets Content-Type inside res.send() based on the body, so
+        // the header may not be set yet when we inspect it here. Fall back to
+        // sniffing the body: a string containing `</body>` is HTML for our
+        // purposes. Only skip if a non-HTML content-type was set explicitly.
+        const ctSetAndNotHtml = ct && !ct.includes("text/html");
         if (
-          ct.includes("text/html") &&
+          !ctSetAndNotHtml &&
           typeof body === "string" &&
           body.includes("</body>")
         ) {
