@@ -37,7 +37,7 @@ export function listPresets(dir) {
   const abs = resolve(dir);
   if (!existsSync(abs)) return [];
   return readdirSync(abs)
-    .filter((f) => /\.(ya?ml)$/i.test(f))
+    .filter((f) => /\.(ya?ml|json)$/i.test(f))
     .map((f) => basename(f, extname(f)))
     .sort();
 }
@@ -56,11 +56,15 @@ export function loadPreset(dir, name) {
   const tryPaths = [
     resolve(dir, `${safe}.yaml`),
     resolve(dir, `${safe}.yml`),
+    resolve(dir, `${safe}.json`),
   ];
   const path = tryPaths.find((p) => existsSync(p));
   if (!path) throw new Error(`Preset not found: ${safe}`);
 
   const raw = readFileSync(path, "utf8");
+  // `yaml.load` happily parses JSON since JSON is a YAML subset, so a single
+  // code path handles `.yaml`, `.yml`, and `.json` personas (including the
+  // spiderplan persona format).
   const parsed = yaml.load(raw) ?? {};
   return {
     name: safe,

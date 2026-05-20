@@ -98,6 +98,9 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       state = await r.json();
       render();
+      // Drive the autoplay loop on every page load. No-op unless a play
+      // session is active in sessionStorage.
+      maybeAutoplay();
     } catch (err) {
       $('.pane[data-pane="journey"]').innerHTML =
         `<p class="err">Failed to load state: ${escape(err.message)}</p>`;
@@ -243,10 +246,12 @@
   function renderPresets() {
     const pane = $('.pane[data-pane="presets"]');
     const presets = state.presets || [];
+    const dir = state.paths?.presetsDir || "";
     if (presets.length === 0) {
       pane.innerHTML = `
         <p class="muted">No presets found.</p>
-        <p class="small">Drop YAML files into your configured <code>presetsDir</code>:</p>
+        <p class="small">Looked in <code>${escape(dir)}</code>.</p>
+        <p class="small">Drop <code>.yaml</code>, <code>.yml</code> or <code>.json</code> files here:</p>
         <pre class="json">target: check-your-answers
 data:
   personal-details:
@@ -257,11 +262,12 @@ data:
     }
     pane.innerHTML = `
       <h4>Presets</h4>
+      <p class="small muted">From <code>${escape(dir)}</code></p>
       <ul class="presets">${presets
         .map(
           (p) => `<li>
             <code>${escape(p)}</code>
-            <button data-preset="${escape(p)}" type="button">Apply</button>
+            <button data-preset="${escape(p)}" type="button" title="Seed data then auto-submit every page until the journey's target">Play \u25b6</button>
           </li>`,
         )
         .join("")}</ul>
@@ -273,18 +279,20 @@ data:
 
   function renderSnapshots() {
     const pane = $('.pane[data-pane="snapshots"]');
+    const dir = state.paths?.snapshotsDir || "";
     pane.innerHTML = `
       <h4>Save current session</h4>
       <form class="save-snap">
         <input name="name" placeholder="snapshot-name" />
         <button type="submit">Save</button>
       </form>
+      <p class="small muted">Saved to <code>${escape(dir)}</code></p>
       <h4>Restore</h4>
       <ul class="snaps">${(state.snapshots || [])
         .map(
           (s) => `<li>
             <code>${escape(s)}</code>
-            <button data-snap="${escape(s)}" type="button">Load</button>
+            <button data-snap="${escape(s)}" type="button" title="Restore data then auto-submit every page until the journey's target">Play \u25b6</button>
           </li>`,
         )
         .join("")}</ul>
@@ -293,12 +301,17 @@ data:
     pane.querySelector(".save-snap").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const name = new FormData(ev.target).get("name") || "";
-      await fetch(`${MOUNT}/api/snapshot/save`, {
+      const r = await fetch(`${MOUNT}/api/snapshot/save`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name }),
       });
+      try {
+        const j = await r.json();
+        if (j?.path) console.log("[casa-dev-overlay] snapshot saved \u2192", j.path);
+        if (j?.error) console.error("[casa-dev-overlay] snapshot save failed:", j);
+      } catch { /* noop */ }
       refresh();
     });
     pane.querySelectorAll("[data-snap]").forEach((b) =>
@@ -312,32 +325,107 @@ data:
     location.assign(url);
   }
   async function applyPreset(name) {
-    // Use a real form POST so the response (a 302 redirect) is followed by
-    // the browser, taking the user to the preset's `target` waypoint.
-    const f = document.createElement("form");
-    f.method = "POST";
-    f.action = `${MOUNT}/api/preset/apply`;
-    f.style.display = "none";
-    f.enctype = "application/x-www-form-urlencoded";
-    // We need JSON for the API; use fetch+follow instead.
     const r = await fetch(`${MOUNT}/api/preset/apply`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name }),
-      redirect: "follow",
+      body: JSON.stringify({ name, mode: "play" }),
     });
-    if (r.redirected) location.assign(r.url);
-    else location.reload();
+    const j = await r.json().catch(() => ({}));
+    startAutoplay(j);
   }
   async function loadSnapshot(name) {
-    await fetch(`${MOUNT}/api/snapshot/load`, {
+    const r = await fetch(`${MOUNT}/api/snapshot/load`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, mode: "play" }),
     });
-    location.reload();
+    const j = await r.json().catch(() => ({}));
+    startAutoplay(j);
+  }
+
+  // ------- autoplay: walk every waypoint, submitting the page form each time.
+  const PLAY_KEY = "__casa-dev-overlay-autoplay";
+  const MAX_STEPS = 100;
+
+  function startAutoplay({ first, target, order } = {}) {
+    if (!first) {
+      alert("Auto-play: no waypoints to walk. Apply data first or check your Plan.");
+      return;
+    }
+    sessionStorage.setItem(
+      PLAY_KEY,
+      JSON.stringify({
+        target: target || null,
+        order: Array.isArray(order) ? order : [],
+        steps: 0,
+        lastWaypoint: null,
+      }),
+    );
+    location.assign(`${state.mountUrl}${encodeURIComponent(first)}`);
+  }
+
+  function abortAutoplay(reason) {
+    sessionStorage.removeItem(PLAY_KEY);
+    // eslint-disable-next-line no-console
+    if (reason) console.warn("[casa-dev-overlay] autoplay stopped:", reason);
+  }
+
+  function autoplayBanner(msg) {
+    let el = wrap.querySelector(".casa-dt-autoplay");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "casa-dt-autoplay";
+      wrap.appendChild(el);
+    }
+    el.innerHTML =
+      `<span>\u25b6 ${escape(msg)}</span>` +
+      `<button type="button" data-stop-autoplay title="Stop here and let me drive">\u2016 pause</button>`;
+    el.querySelector("[data-stop-autoplay]").onclick = () => {
+      abortAutoplay("user");
+      el.remove();
+    };
+  }
+
+  function maybeAutoplay() {
+    const raw = sessionStorage.getItem(PLAY_KEY);
+    if (!raw) return;
+    let play;
+    try { play = JSON.parse(raw); } catch { return abortAutoplay("bad state"); }
+
+    const here = state?.waypoint;
+    if (!here) return abortAutoplay("not on a waypoint");
+
+    if (play.target && here === play.target) {
+      sessionStorage.removeItem(PLAY_KEY);
+      autoplayBanner(`reached ${here}`);
+      return;
+    }
+    if (play.lastWaypoint === here) {
+      autoplayBanner(`stuck on ${here} (validation error?)`);
+      return abortAutoplay(`stuck on ${here}`);
+    }
+    if (++play.steps > MAX_STEPS) {
+      autoplayBanner(`hit ${MAX_STEPS}-step limit`);
+      return abortAutoplay("step limit");
+    }
+
+    // Find the page form: CASA wraps its waypoint forms in <main>, but the
+    // first non-overlay <form> with a CSRF input is good enough.
+    const form = Array.from(document.querySelectorAll("form")).find(
+      (f) => !host.contains(f),
+    );
+    if (!form) {
+      autoplayBanner(`no form on ${here}`);
+      return abortAutoplay("no form");
+    }
+
+    play.lastWaypoint = here;
+    sessionStorage.setItem(PLAY_KEY, JSON.stringify(play));
+    autoplayBanner(`submitting ${here} \u2026`);
+    // small delay so the user can see what's happening
+    setTimeout(() => form.submit(), 150);
   }
 
   // ------- utilities

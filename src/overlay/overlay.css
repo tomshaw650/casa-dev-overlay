@@ -43,6 +43,10 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* `display: flex` above otherwise beats the UA `[hidden] { display:none }`
+   rule, leaving the panel visible after close. */
+.casa-dt-panel[hidden] { display: none !important; }
+.casa-dt.collapsed .casa-dt-panel { display: none !important; }
 
 .casa-dt-panel header {
   display: flex;
@@ -227,3 +231,32 @@ footer {
 .small { font-size: 11px; }
 .err { color: #d4351c; }
 .loading { color: #6f777b; font-style: italic; }
+
+.row-actions { display: inline-flex; gap: 4px; }
+
+.casa-dt-autoplay {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1d70b8;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.casa-dt-autoplay button {
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.casa-dt-autoplay button:hover { background: rgba(255,255,255,0.35); }

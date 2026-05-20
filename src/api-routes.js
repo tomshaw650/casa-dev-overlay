@@ -65,6 +65,10 @@ export function mountApiRoutes({ ancillaryRouter, guard, config, captured }) {
       hooks: req[DEVTOOLS_REQ]?.stages ?? [],
       presets: listPresets(config.presetsDir),
       snapshots: listSnapshots(config.snapshotsDir),
+      paths: {
+        presetsDir: resolve(config.presetsDir),
+        snapshotsDir: resolve(config.snapshotsDir),
+      },
     });
   });
 
@@ -83,7 +87,7 @@ export function mountApiRoutes({ ancillaryRouter, guard, config, captured }) {
   });
 
   r.post(`${MOUNT_PATH}/api/preset/apply`, guard, json, (req, res) => {
-    const { name, target } = req.body ?? {};
+    const { name, target, mode } = req.body ?? {};
     let preset;
     try {
       preset = loadPreset(config.presetsDir, name);
@@ -100,6 +104,22 @@ export function mountApiRoutes({ ancillaryRouter, guard, config, captured }) {
     persist(req, ctx);
 
     const land = target || preset.target;
+
+    // "play" mode: the overlay drives the browser through the journey one
+    // POST at a time. Return JSON so the caller can navigate to the first
+    // waypoint itself rather than following a 302 to the target.
+    if (mode === "play") {
+      const order = traversed(captured.plan, ctx);
+      const first = order[0] || land;
+      return res.json({
+        ok: true,
+        mode: "play",
+        target: land || order[order.length - 1] || null,
+        first,
+        order,
+      });
+    }
+
     if (land) {
       return res.redirect(`${req.baseUrl}/${land}`);
     }
@@ -141,20 +161,37 @@ export function mountApiRoutes({ ancillaryRouter, guard, config, captured }) {
     const ctx = req.casa?.journeyContext;
     if (!ctx) return res.status(500).json({ error: "no JourneyContext" });
 
-    mkdirSync(resolve(config.snapshotsDir), { recursive: true });
-    const path = resolve(config.snapshotsDir, `${safe}.json`);
-    writeFileSync(path, JSON.stringify(ctx.toObject(), null, 2));
-    res.json({ ok: true, name: safe });
+    let payload;
+    try {
+      payload =
+        typeof ctx.toObject === "function" ? ctx.toObject() : { data: ctx.getData?.() ?? {} };
+    } catch (err) {
+      return res.status(500).json({ error: `ctx.toObject failed: ${err.message}` });
+    }
+
+    const dir = resolve(config.snapshotsDir);
+    const path = resolve(dir, `${safe}.json`);
+    try {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path, JSON.stringify(payload, null, 2));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[casa-dev-overlay] failed to save snapshot to ${path}:`, err);
+      return res.status(500).json({ error: `write failed: ${err.message}`, path });
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[casa-dev-overlay] snapshot saved \u2192 ${path}`);
+    res.json({ ok: true, name: safe, path });
   });
 
   r.post(`${MOUNT_PATH}/api/snapshot/load`, guard, json, (req, res) => {
-    const { name } = req.body ?? {};
+    const { name, mode } = req.body ?? {};
     const safe = String(name || "").replace(/[^a-z0-9_-]/gi, "");
     if (!safe) return res.status(400).json({ error: "name required" });
 
     const path = resolve(config.snapshotsDir, `${safe}.json`);
     if (!existsSync(path)) {
-      return res.status(404).json({ error: "snapshot not found" });
+      return res.status(404).json({ error: "snapshot not found", path });
     }
     const obj = JSON.parse(readFileSync(path, "utf8"));
     const ctx = req.casa?.journeyContext;
@@ -166,6 +203,17 @@ export function mountApiRoutes({ ancillaryRouter, guard, config, captured }) {
       ctx.setData(obj.data ?? {});
     }
     persist(req, ctx);
+
+    if (mode === "play") {
+      const order = traversed(captured.plan, ctx);
+      return res.json({
+        ok: true,
+        mode: "play",
+        first: order[0] || null,
+        target: order[order.length - 1] || null,
+        order,
+      });
+    }
     res.json({ ok: true });
   });
 }
